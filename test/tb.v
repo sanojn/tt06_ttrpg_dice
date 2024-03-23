@@ -1,4 +1,5 @@
-`default_nettype none `timescale 1ns / 1ps
+//`default_nettype none
+`timescale 1ns / 1ps
 
 /* This testbench just instantiates the module and makes some convenient wires
    that can be driven / tested by the cocotb test.py.
@@ -44,6 +45,11 @@ module tb ();
   // The testbench module does some preprocesing of inputs and outputs that
   // simplifies life for the cocotb testbench
   
+
+  // cocotb access points to the config inputs
+   wire [2:0] cfg;
+   assign uio_in[7:5] = cfg;
+   
   // Apply button inputs as active high or low depending on uio_in[5]
   wire btn4, btn6, btn8, btn10, btn12, btn20, btn100;
   assign ui_in[0] = (uio_in[5] ? btn4 : ~btn4);
@@ -60,8 +66,8 @@ module tb ();
   // Check which segments are lit
   // common signals are active when equal to uio_in[7]
   wire digit1_active, digit10_active;
-  assign digit1_active  = ( uio_out[0] == uio_in[7] ) && uio_oe[0]==1'b1;
-  assign digit10_active = ( uio_out[1] == uio_in[7] ) && uio_oe[1]==1'b1;
+  assign digit1_active  = ( uio_out[3] == uio_in[7] ) && uio_oe[3]==1'b1;
+  assign digit10_active = ( uio_out[4] == uio_in[7] ) && uio_oe[4]==1'b1;
 
   // segments are lit when equal to uio_in[6] and when the common
   // signal of either digit1 or digit10 is active
@@ -101,5 +107,190 @@ module tb ();
      assign digit1  = user_project.digit1;
      assign digit10 = user_project.digit10;
   `endif
+
+
+   //////////////////////////////////////////////////////////
+   // Excercising the I2C slave
+   //////////////////////////////////////////////////////////
+   `define delay      150000
+   `define longdelay 1000000
    
+   reg sda, scl;
+   wire sda_bus, scl_bus;
+   assign (pull1,strong0) sda_bus = (uio_oe[1] ? uio_out[1] : 1'b1);
+   pullup(scl_bus);
+   assign sda_bus = sda;
+   assign scl_bus = scl;
+   // strength reduction to get well-defined inputs
+   buf (uio_in[1],sda_bus);
+   buf (uio_in[2],scl_bus);
+
+   // registers for received data
+   reg rbit, rvalid;
+   reg [7:0] rdata;
+   
+   task i2c_init;
+     begin
+       #`delay;
+       scl <= 1'bz;
+       sda <= 1'bz;
+       #`delay;
+     end
+   endtask
+
+   task i2c_start; // also works as restart
+     begin
+        if (!sda) begin
+          sda <= 1'bz;
+          #`delay;
+       end
+        if (!scl) begin
+          scl <= 1'bz;
+          #`delay;
+       end
+       sda <= 1'b0;
+       #`delay;
+       scl <= 1'b0;
+       #`delay;
+     end
+   endtask
+   
+   task i2c_stop; // call with scl low
+     begin
+       sda <= 1'b0;
+       #`delay;
+       scl <= 1'bz;
+       #`delay
+       sda <= 1'bz;
+       #`delay;
+     end
+   endtask
+
+   task i2c_sendbit(d); // call with scl low
+      begin
+         sda <= ( d ? 1'bz : 1'b0 ); // assert data
+         #`delay;
+         scl <= 1'bz; // pulse clock
+         #`delay;
+         scl <= 1'b0;
+         #`delay;
+         sda <= 1'bz; // release data
+      end
+   endtask
+         
+   task i2c_sendbyte (input [7:0] data);
+      begin
+         integer i;
+         for (i=7; i>=0 ; i = i-1 ) begin
+            i2c_sendbit(data[i]);
+         end
+      end
+   endtask
+
+   task i2c_recvbit; // call with scl low
+      begin
+         sda <= 1'bz; // release data
+         #`delay;
+         scl <= 1'bz; // pulse clock
+         #`delay;
+         rbit <= uio_in[1]; // sample data. uio_in[1] is the strength resolved version of sda
+         scl <= 1'b0;
+         #`delay;
+      end
+   endtask
+         
+   task i2c_recvbyte;
+      begin
+         integer i;
+         for (i=7; i>=0 ; i = i-1 ) begin
+            i2c_recvbit();
+            rdata[i] <= rbit;
+         end
+      end
+   endtask
+
+   task i2c_checkack;
+      begin
+         sda <= 1'bz;
+         #`delay;
+         scl <= 1'bz;
+         #`delay;
+         if (sda) $display("NAK during i2c transaction");
+         scl <= 1'b0;
+         #`delay;
+      end
+   endtask
+
+   task i2c_emitack;
+      begin
+         sda <= 1'b0;
+         #`delay;
+         rvalid <= 1'b1;
+         scl <= 1'bz;
+         #`delay;
+         rvalid <= 1'b0;
+         scl <= 1'b0;
+         #`delay;
+         sda <= 1'bz;
+      end
+   endtask
+
+
+   task i2c_write(input [7:0] i2c_addr, sub_addr, data0, data1);
+     begin
+        i2c_start();
+        i2c_sendbyte(i2c_addr & 8'hfe); // assert write bit
+        i2c_checkack();
+        i2c_sendbyte(sub_addr);
+        i2c_checkack();
+        i2c_sendbyte(data0);
+        i2c_checkack();
+        i2c_sendbyte(data1);
+        i2c_checkack();
+        i2c_stop();
+     end
+   endtask
+
+   task i2c_read(input [7:0] i2c_addr, sub_addr, no_of_bytes);
+     begin
+        integer i;
+        i2c_start();
+        i2c_sendbyte(i2c_addr & 8'hfe); // assert write bit
+        i2c_checkack();
+        i2c_sendbyte(sub_addr);
+        i2c_checkack();
+        i2c_start();                    // emit a restart
+        i2c_sendbyte(i2c_addr | 8'h01); // assert read bit
+        i2c_checkack();
+        for (i=0; i<no_of_bytes; i=i+1) begin
+          i2c_recvbyte();
+          i2c_emitack();
+        end
+        i2c_stop();
+     end
+   endtask
+   
+   initial begin
+      i2c_init;
+      #`longdelay;
+      i2c_write(8'b11100000, 8'd0, 8'haa, 8'h55);
+      #`longdelay;
+      i2c_write(8'b11100000, 8'd2, 8'h69, 8'h96);
+      #`longdelay;
+      i2c_write(8'b11100000, 8'd4, 8'h01, 8'h02);
+      #`longdelay;
+      i2c_write(8'b11100000, 8'd6, 8'h03, 8'h04);
+      #`longdelay;
+      i2c_write(8'b11100000, 8'd8, 8'h2b, 8'hff); // ~1/3 duty cycle
+      #`longdelay;
+      i2c_read(8'b11100000, 8'd0,8'd12);
+      #`longdelay;
+      i2c_write(8'b11100000, 8'd8, 8'h21, 8'hff); // ~1/4 duty cycle
+      #`longdelay;
+      i2c_write(8'b11100000, 8'd8, 8'h41, 8'hff); // ~1/2 duty cycle
+      #`longdelay;
+      i2c_write(8'b11100000, 8'd8, 8'h01, 8'hff); // 1/128 duty cycle
+      #`longdelay;
+      i2c_write(8'b11100000, 8'd8, 8'h7f, 8'hff); // 127/128 duty cycle
+   end
 endmodule

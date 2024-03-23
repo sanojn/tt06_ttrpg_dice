@@ -20,7 +20,7 @@ module tt_um_sanojn_ttrpg_dice (
     // Use rst_sync as internal asynchronous reset
     reg rst_sync1, rst_sync;
     always @(negedge clk)
-        {rst_sync, rst_sync1} = {rst_sync1, rst_n};
+      {rst_sync, rst_sync1} <= {rst_sync1, rst_n};
     
     // Prescaler provides a one clock-cycle pulse at 32 Hz
     reg [9:0] prescaler;
@@ -71,7 +71,7 @@ module tt_um_sanojn_ttrpg_dice (
         end
 
     // Turn off digit outputs after ~8 seconds
-    reg showDigitTimeout;
+    wire showDigitTimeout;
     reg [7:0] timeoutCounter;
     always @(posedge clk) begin
         if (rst_sync==0) begin
@@ -107,11 +107,89 @@ module tt_um_sanojn_ttrpg_dice (
     // uio_in[7:6] = 10 is appropriate for a common anode display
     // uio_in[7:6] = 00 is apropriate for a common anode display with an inverting driver for the 'common' signal
     assign uo_out = ( uio_in[6] ? displaysegments : ~displaysegments );
-    assign uio_out[0] =  ( uio_in[7] ? showDigit1  : ~showDigit1  );   // Digit1 common
-    assign uio_out[1] =  ( uio_in[7] ? showDigit10 : ~showDigit10 );   // Digit10 common
+    assign uio_out[3] =  ( uio_in[7] ? showDigit1  : ~showDigit1  );   // Digit1 common
+    assign uio_out[4] =  ( uio_in[7] ? showDigit10 : ~showDigit10 );   // Digit10 common
+
+
+    ///////////////////////////////////////////////////////////////////
+    // Second half of project: simple I2C slave experiment
+    // Change clock speed to 25-50 MHz
+    ///////////////////////////////////////////////////////////////////
+    wire rw;
+    wire [7:0] addr;
+    wire wen;
+    wire [7:0] wdata;
+    wire rdata_used;
+    reg [7:0] rdata;
+    i2c_slave i2c // Slave address 0x70 (0xE0 and 0xE1)
+    (
+      .clk(clk),
+      .rst_n(rst_n),
+      .sda_o(uio_out[1]),
+      .sda_oe(uio_oe[1]),
+      .sda_i(uio_in[1]),
+      .scl(uio_in[2]),
+
+      // application interface
+      .rw(rw),
+      .addr(addr),
+      .wen(wen),
+      .wdata(wdata),
+      .rdata_used(rdata_used),
+      .rdata(rdata)
+    );
+
+    /////////////////////////////////////////////////////////////////////////////////////////////
+    // A few small I2C peripherals
     
-    // All output pins must be assigned. If not used, assign to 0.
-    assign uio_out[7:2] = 4'b0;
-    assign uio_oe  = 8'b00000011;
+  // 8-byte Memory
+    reg [7:0] mem [7:0];
+    always @(posedge clk)
+      if (!addr[3] && wen)
+        mem[addr[2:0]] <= wdata;
+
+    // I2C Peripheral GPIO pin uio[0]
+    reg [7:0] IOctrl;
+    reg [7:0] pwm;
+    reg io_oe;
+    always @(posedge clk)
+      if (!rst_n) begin
+        io_oe  <= 1'b0;
+        IOctrl <= 8'b0;
+      end else begin
+        if (addr[3:0]==4'b1000 && wen)
+          IOctrl <= wdata;
+        if (addr[3:0]==4'b1001 && wen)
+          io_oe <= wdata[0];
+      end
+    assign uio_oe[0] = io_oe;
+    
+    // simple PWM generator for the IO pin
+    // IOctrl <= 128 will output a PWM signal based on IOctrl[6:0] / 128
+    // IOctrl >= 128 will output 1
+    always @(posedge clk) begin
+      if (!rst_n) pwm <= 8'b0;
+      else begin
+        pwm <= {1'b0,pwm[6:0]} + IOctrl[6:0];
+          if (IOctrl[7]) pwm[7] <= 1'b1;
+      end
+    end
+    assign uio_out[0] = pwm[7];
+
+    // I2C reads
+    always @(*) begin
+      if (!addr[3]) rdata = mem[addr[2:0]];
+      else if (addr[3:0]==4'b1000)   rdata = IOctrl;
+        else if (addr[3:0]==4'b1001) rdata = { 7'b0 , uio_oe[0] };
+      else if (addr[3:0]==4'b1010) rdata = uio_in;
+      else                          rdata = ui_in;
+    end
+
+      
+  // All output pins must be assigned. If not used, assign to 0.
+  assign uio_out[7:5] = 3'b0;
+  assign uio_out[2]   = 1'b0;
+  assign uio_oe[7:3]  = 5'b00011;
+  assign uio_oe[2]  = 1'b0;
 
 endmodule

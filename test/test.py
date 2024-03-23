@@ -137,7 +137,7 @@ async def test_dice_activehighbuttons(dut):
   dut._log.info("Setting up test")
   clock = Clock(dut.clk, 30, units="us") # Approximation of 32768 Hz
   cocotb.start_soon(clock.start())
-  dut.uio_in.value = 32 # Configure buttons as active high, outputs as active low
+  dut.cfg.value = 1 # Configure buttons as active high, outputs as active low
   await reset(dut)
   digitsShown_task = cocotb.start_soon(checkDigitsShown(dut))
   segmentsShown_task = cocotb.start_soon(checkSegmentOutputs(dut))
@@ -151,7 +151,7 @@ async def test_dice_activelowbuttons(dut):
   dut._log.info("Setting up test")
   clock = Clock(dut.clk, 30, units="us") # Approximation of 32768 Hz
   cocotb.start_soon(clock.start())
-  dut.uio_in.value =  0 # Configure buttons as active low, outputs as active low
+  dut.cfg.value = 0 # Configure buttons as active low, outputs as active low
   activeLevel=0
   commonLevel=0
   await reset(dut)
@@ -167,7 +167,7 @@ async def test_dice_activehighsegments(dut):
   dut._log.info("Setting up test")
   clock = Clock(dut.clk, 30, units="us") # Approximation of 32768 Hz
   cocotb.start_soon(clock.start())
-  dut.uio_in.value = 64+32 # Configure buttons as active high, segment outputs as active high
+  dut.cfg.value = 2+1 # Configure buttons as active high, segment outputs as active high
   await reset(dut)
   digitsShown_task = cocotb.start_soon(checkDigitsShown(dut))
   segmentsShown_task = cocotb.start_soon(checkSegmentOutputs(dut))
@@ -181,7 +181,7 @@ async def test_dice_activehighcommons(dut):
   dut._log.info("Setting up test")
   clock = Clock(dut.clk, 30, units="us") # Approximation of 32768 Hz
   cocotb.start_soon(clock.start())
-  dut.uio_in.value = 128+32 # Configure buttons as active high, common outputs as active high
+  dut.cfg.value = 4+1 # Configure buttons as active high, common outputs as active high
   await reset(dut)
   digitsShown_task = cocotb.start_soon(checkDigitsShown(dut))
   segmentsShown_task = cocotb.start_soon(checkSegmentOutputs(dut))
@@ -195,7 +195,7 @@ async def test_dice_activehighboth(dut):
   dut._log.info("Setting up test")
   clock = Clock(dut.clk, 30, units="us") # Approximation of 32768 Hz
   cocotb.start_soon(clock.start())
-  dut.uio_in.value = 128+64+32 # Configure buttons as active high, common and segment outputs as active high
+  dut.cfg.value = 4+2+1 # Configure buttons as active high, common and segment outputs as active high
   await reset(dut)
   digitsShown_task = cocotb.start_soon(checkDigitsShown(dut))
   segmentsShown_task = cocotb.start_soon(checkSegmentOutputs(dut))
@@ -209,7 +209,7 @@ async def test_dice_timeout(dut):
   dut._log.info("Setting up test")
   clock = Clock(dut.clk, 30, units="us") # Approximation of 32768 Hz
   cocotb.start_soon(clock.start())
-  dut.uio_in.value = 128+64+32 # Configure buttons as active high, common and segment outputs as active high
+  dut.cfg.value = 4+2+1 # Configure buttons as active high, common and segment outputs as active high
   await reset(dut)
   dut._log.info("Running test")
   dut._log.info("Pressing button")
